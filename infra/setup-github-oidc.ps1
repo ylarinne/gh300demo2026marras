@@ -12,12 +12,18 @@ Requires: az login, gh auth login, and a completed .\provision.ps1 run.
 param(
   [string]$ResourceGroup = "rg-gift-ideas",
   [string]$AppRegistrationName = "github-gift-ideas-deploy",
-  [string]$Branch = "main"
+  [string]$Branch = "main",
+  [string]$Environment = "production"
 )
 $ErrorActionPreference = "Stop"
 
-$repo = gh repo view --json nameWithOwner --jq ".nameWithOwner"
+$repoInfo = gh repo view --json nameWithOwner,id --jq "." | ConvertFrom-Json
+$repo = $repoInfo.nameWithOwner
 if (-not $repo) { throw "Could not resolve the GitHub repository; run 'gh auth login' first." }
+$owner, $repoName = $repo -split "/"
+# GitHub embeds numeric owner/repo ids in OIDC subject claims; resolve them for exact matching.
+$ownerId = gh api "users/$owner" --jq ".id"
+$repoId = gh api "repos/$repo" --jq ".id"
 
 $subscriptionId = az account show --query id -o tsv
 $tenantId = az account show --query tenantId -o tsv
@@ -28,14 +34,30 @@ Write-Host "Creating app registration '$AppRegistrationName'..."
 $appId = az ad app create --display-name $AppRegistrationName --query appId -o tsv
 az ad sp create --id $appId --output none 2>$null
 
-Write-Host "Adding federated credential for $repo ($Branch)..."
-$federated = @{
-  name = "github-$Branch"
-  issuer = "https://token.actions.githubusercontent.com"
-  subject = "repo:${repo}:ref:refs/heads/$Branch"
-  audiences = @("api://AzureADTokenExchange")
-} | ConvertTo-Json -Compress
-$federated | az ad app federated-credential create --id $appId --parameters "@-" --output none
+Write-Host "Adding federated credentials for $repo..."
+$subjectRepo = "repo:${owner}@${ownerId}/${repoName}@${repoId}"
+$credentials = @(
+  @{ name = "github-$Branch"; subject = "${subjectRepo}:ref:refs/heads/$Branch" },
+  @{ name = "github-env-$Environment"; subject = "${subjectRepo}:environment:$Environment" }
+)
+$existing = az ad app federated-credential list --id $appId --query "[].name" -o tsv
+foreach ($credential in $credentials) {
+  if ($existing -contains $credential.name) {
+    Write-Host "  $($credential.name) already exists, skipping."
+    continue
+  }
+  $parameters = @{
+    name = $credential.name
+    issuer = "https://token.actions.githubusercontent.com"
+    subject = $credential.subject
+    audiences = @("api://AzureADTokenExchange")
+  } | ConvertTo-Json -Compress
+  $file = New-TemporaryFile
+  Set-Content $file $parameters -Encoding ascii
+  az ad app federated-credential create --id $appId --parameters "@$file" --output none
+  Remove-Item $file
+  Write-Host "  $($credential.name): $($credential.subject)"
+}
 
 Write-Host "Granting 'Website Contributor' on resource group '$ResourceGroup'..."
 az role assignment create `

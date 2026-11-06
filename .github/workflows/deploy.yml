@@ -43,11 +43,13 @@ jobs:
           cp -r api/src deploy/src
           rm -rf deploy/src/features/gift-ideas/giftIdeas.test.js
           cp -r client/dist deploy/public
-
+          cd deploy
+          npm install --omit=dev
       - uses: actions/upload-artifact@v4
         with:
           name: webapp
           path: deploy
+          include-hidden-files: true
 
   deploy:
     runs-on: ubuntu-latest
