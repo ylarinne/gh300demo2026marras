@@ -1,0 +1,32 @@
+{
+  "name": "gift-ideas-demo",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "api",
+    "client"
+  ],
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "dev": "concurrently --kill-others --names api,client \"npm run dev -w api\" \"npm run dev -w client\"",
+    "start": "npm start -w api",
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm test --workspaces",
+    "test:e2e": "playwright test",
+    "lint": "eslint ."
+  },
+  "overrides": {
+    "minimatch@>=7.0.0 <=11.0.0": "^11.0.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.65.0",
+    "concurrently": "^9.2.1",
+    "eslint": "^10.14.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.7",
+    "globals": "^17.14.0"
+  }
+}
